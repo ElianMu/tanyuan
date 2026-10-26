@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tanyuan"
+version = "1.0.0"
+description = "探渊 · 多智能体数据分析系统"
+requires-python = ">=3.12"
+dependencies = [
+    # Web 框架 / ASGI 服务器
+    "fastapi>=0.136,<1",
+    "pydantic>=2,<3",
+    "python-multipart>=0.0.20,<1",
+    "uvicorn>=0.48,<1",
+    # 多智能体框架
+    "deepagents>=0.6.6,<0.8",
+    "langchain>=1,<2",
+    # LLM 接入（OpenAI 兼容协议）
+    "langchain-openai>=1,<2",
+    "langchain-core>=1,<2",
+    # 数据库驱动
+    "mysql-connector-python>=9.7,<27",
+    # 向量数据库（本地 Chroma）
+    "langchain-chroma>=1,<2",
+    # Embedding（本地 BGE 模型）
+    "langchain-huggingface>=1,<2",
+    "sentence-transformers>=6,<7",
+    # 文档分块
+    "langchain-text-splitters>=1,<2",
+    # 全网检索
+    "tavily-python>=0.7,<1",
+    # 文档解析
+    "python-docx",
+    "pypdf",
+    "openpyxl",
+    "xlrd>=2,<3",
+    "pandas",
+    # PDF 生成（Markdown → Word COM）
+    "markdown",
+    "pywin32>=306; sys_platform == 'win32'",
+    # 横切关注点
+    "colorlog",
+    "pyyaml>=6,<7",
+    "python-dotenv",
+]
+
+[tool.setuptools]
+packages = ["agent", "agent.sub_agents", "api", "tools", "utils"]

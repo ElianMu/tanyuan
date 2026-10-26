@@ -1,0 +1,100 @@
+/* 全局样式 + 主题变量（浅色/深色） */
+:root {
+  --primary: #165dff;
+  --success: #67c23a;
+  --danger: #f56c6c;
+  --warning: #e6a23c;
+  --web: #409eff;
+  --db: #67c23a;
+  --kb: #9254de;
+
+  --bg: #f5f7fa;
+  --card-bg: #ffffff;
+  --text: #303133;
+  --text-secondary: #909399;
+  --border: #e4e7ed;
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme='dark'] {
+  --bg: #141414;
+  --card-bg: #1f1f1f;
+  --text: #e5eaf3;
+  --text-secondary: #8a8f99;
+  --border: #303133;
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+html,
+body,
+#app {
+  height: 100%;
+}
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  transition: background 0.3s, color 0.3s;
+}
+
+/* 玻璃态卡片 */
+.glass-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  transition: background 0.3s, border-color 0.3s;
+}
+
+/* 新日志淡入 */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.fade-in {
+  animation: fade-in 0.3s ease;
+}
+
+/* 运行节点脉冲呼吸 */
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+.pulse {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* 折叠面板平滑过渡 */
+.collapse-transition {
+  transition: max-height 0.25s ease, opacity 0.25s ease;
+  overflow: hidden;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}

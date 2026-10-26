@@ -1,0 +1,46 @@
+# Secrets and local configuration (template requires review before staging)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.aws/
+secrets/
+credentials*.json
+.envrc
+.netrc
+.npmrc
+.pypirc
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+# Frontend
+node_modules/
+# Local data and generated artifacts
+models/
+vector_store/
+upload/
+output/
+知识库文件/
+knowledge_base/
+抗生素类药品清单报告.md
+*.log
+logs/
+*.tmp
+*.temp
+.DS_Store
+.idea/
+.vscode/
+.claude/
+/抗生素类药品清单报告.pdf

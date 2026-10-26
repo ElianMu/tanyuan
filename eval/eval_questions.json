@@ -1,0 +1,12 @@
+[
+  {"query": "企业内部控制的基本要素有哪些", "expected_source": "企业内部控制管理手册.pdf"},
+  {"query": "风险评估的定量分析和定性分析方法", "expected_source": "企业内部控制管理手册.pdf"},
+  {"query": "存货验收入库的控制流程是什么", "expected_source": "企业内部控制管理手册.pdf"},
+  {"query": "刑法中关于生产销售假药劣药的规定", "expected_source": "中华人民共和国刑法.docx"},
+  {"query": "犯罪构成需要哪些要件", "expected_source": "中华人民共和国刑法.docx"},
+  {"query": "刑法规定的刑罚种类有哪些", "expected_source": "中华人民共和国刑法.docx"},
+  {"query": "瓦尔登湖中梭罗倡导什么样的生活方式", "expected_source": "瓦尔登湖.txt"},
+  {"query": "瓦尔登湖描写了哪些自然景观", "expected_source": "瓦尔登湖.txt"},
+  {"query": "百年孤独中布恩迪亚家族的故事背景", "expected_source": "百年孤独.txt"},
+  {"query": "百年孤独的魔幻现实主义文学特点", "expected_source": "百年孤独.txt"}
+]
