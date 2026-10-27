@@ -14,6 +14,7 @@ from agent.load_prompt import main_agent_config, sub_agents_config
 from agent.sub_agents import SUBAGENTS
 from api import context
 from api.monitor import MonitorCallbackHandler
+from api.monitor import monitor
 from tools import reflect_check
 from tools.markdown_tools import generate_markdown
 from tools.pdf_tools import convert_md_to_pdf
@@ -187,10 +188,12 @@ async def run_deep_agent(query: str,thread_id: str) -> str:
         agent=create_deep_agent();messages=[HumanMessage(content=query)]
         with search_scope():
             for number in range(1,MAX_ROUNDS+1):
+                await monitor.report(thread_id,'round_start','开始执行与校验',{'round':number})
                 result=await main_agent_run(query,number,agent=agent,messages=messages,evidence=evidence,policy=policy)
                 hard=reflect_check.hard_check(result)
                 soft=await soft_review(result) if not hard else None
                 issues=hard+([soft] if soft else [])
+                await monitor.report(thread_id,'reflection','质量校验完成',{'round':number,'hard_issues':hard,'soft_issue':soft,'passed':not issues})
                 score=(len(issues),-len(result['report']))
                 if best_score is None or score<best_score: best,best_issues,best_score=result,issues,score
                 if not issues: return result['report']

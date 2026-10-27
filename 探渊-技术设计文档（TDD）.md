@@ -428,14 +428,19 @@ sub_agents:
 | 接口 | 方法 | 请求 | 响应 |
 | --- | --- | --- | --- |
 | /api/task | POST | `{"query": str, "thread_id": str\|null}` | `{"status":"started","thread_id":str}` |
+| /api/session | POST | 无 | 预创建会话，返回 thread_id/status/path，供先上传后执行 |
+| /api/task/{thread_id} | GET | 无 | status/result |
+| /api/task/{thread_id}/cancel | POST | 无 | 取消并返回实际状态 |
 | /api/upload | POST | multipart：`files[]` + `thread_id` | `{"status":"uploaded","files":[str]}` |
-| /api/files | GET | `?path=<绝对路径>` | `{"files":[{name,type,path,size,mtime}]}`（mtime 倒序） |
-| /api/download | GET | `?path=<绝对路径>` | 文件流 / `{"error":...}` |
+| /api/files | GET | `?thread_id=<会话>&path=<可选会话内路径>` | `{"files":[{name,type,path,size,mtime}]}`（mtime 倒序） |
+| /api/download | GET | `?thread_id=<会话>&path=<会话内路径>` | 文件流 / HTTP 4xx |
 
 - **任务异步执行**：`/api/task` 用 `asyncio.create_task` 后台执行，立即返回；
 - **越界校验**：`/api/files`、`/api/download` 需校验目标路径位于结果目录内，否则返回拒绝访问。
 
 ### 8.2 WebSocket 协议
+
+2026-10-27：事件增加 thread_id、单调 seq；连接使用 `?after=<最后收到序号>` 重放最近缓存，首次 after=0。最多保存每会话 128 条；任务 GET 状态接口用于缓存超出或断线后的终态同步。工具事件 data 包含 id、parent_id、tool_name，结束事件复用相同 id；轮次与 Reflection 以独立事件上报。状态支持 created/running/completed/incomplete/failed/cancelled。仅单进程本机运行，不假设已有账号鉴权。
 
 - 端点：`/ws/{thread_id}`；心跳：收到文本 → 回复 `{"type":"pong","message":"服务端已收到: <原文>"}`。
 - 推送消息统一结构：
