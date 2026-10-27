@@ -27,7 +27,9 @@ def hard_check(result: dict) -> list[str]:
     issues: list[str] = []
 
     # H1 篇幅
-    if len(report.strip()) < MIN_REPORT_LENGTH:
+    if not report.strip():
+        issues.append("回答为空")
+    if result.get("report_requested", True) and len(report.strip()) < MIN_REPORT_LENGTH:
         issues.append("报告篇幅不足 1000 字")
 
     # H2 占位符
@@ -43,6 +45,12 @@ def hard_check(result: dict) -> list[str]:
     for src in result.get("required_sources", []):
         if src not in called:
             issues.append(f"缺少 {src} 的检索结果")
+
+    counts = result.get("source_counts", {})
+    if "web_search" in result.get("required_sources", []) and counts.get("web_search", 0) < 2:
+        issues.append("网络检索未完成两个不同角度")
+    if "knowledge" in result.get("required_sources", []) and counts.get("knowledge", 0) < 3:
+        issues.append("知识库检索未完成三次")
 
     return issues
 

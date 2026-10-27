@@ -9,7 +9,7 @@ import os
 from urllib.parse import urlsplit
 from langchain.chat_models import init_chat_model
 
-def get_llm(*, max_tokens: int = 4096, max_retries: int = 2):
+def get_llm(*, max_tokens: int = 4096, max_retries: int = 2, callbacks=None):
     """初始化 LLM 实例（默认 deepseek-chat，OpenAI 兼容协议）。
 
     timeout / max_retries 按 TDD §13 设置，避免外部调用无限阻塞。
@@ -31,6 +31,7 @@ def get_llm(*, max_tokens: int = 4096, max_retries: int = 2):
         timeout=60,
         max_retries=max_retries,
         max_tokens=max_tokens,
+        callbacks=callbacks,
     )
 
 

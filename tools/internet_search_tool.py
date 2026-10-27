@@ -60,6 +60,9 @@ def internet_search(
         usage.queries.add(normalized)
     client = None
     try:
+        if os.getenv("TANYUAN_CALL_BUDGET_FILE"):
+            from utils.call_budget import reserve
+            reserve("tavily")
         client = TavilyClient(api_key=key)
         response = client.search(
             query=query,
