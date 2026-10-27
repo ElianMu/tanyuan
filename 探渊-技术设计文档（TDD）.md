@@ -71,7 +71,7 @@
 | 文档分块 | langchain-text-splitters | RecursiveCharacterTextSplitter |
 | 全网检索 | tavily-python | ≥ 0.7 |
 | 文档解析 | python-docx / pypdf / openpyxl / pandas | Word / PDF / Excel 读取 |
-| PDF 生成 | markdown + pywin32（Word COM） | Markdown→HTML→Word→PDF |
+| PDF 生成 | markdown + bleach + BeautifulSoup + ReportLab | Markdown→净化 HTML→PDF |
 | 会话隔离 | ContextVar | Python 标准库 |
 | 日志 | colorlog | 彩色日志 |
 | 提示词配置 | pyyaml | 外置 YAML |
@@ -189,7 +189,7 @@ frontend/                            # 前端（Vue 3 + Vite，独立目录）
 | --- | --- |
 | path_utils | 统一路径解析：虚拟路径清洗、上传目录、嵌套防护、越界校验 |
 | logger_utils | 全局彩色日志（时间/文件/行号/级别/消息） |
-| converter_utils | Markdown→HTML→Word COM→PDF 核心转换 |
+| converter_utils | Markdown→净化 HTML→ReportLab PDF 核心转换 |
 
 ---
 
@@ -410,6 +410,8 @@ sub_agents:
 阶段 2 实现约束（2026-10-27）：集成模块导入时不读取 `.env` 或初始化外部客户端，部署入口显式注入进程环境。BGE/Chroma 的构建与检索在独立子进程、干净工作目录中运行，避免第三方配置自动读取服务器工作目录的 `.env`；子进程不继承 API Key、Token 或数据库密码。检索超时 60 秒后结束子进程，不遗留后台模型任务。检索只打开已有集合并校验模型清单，不因查询自动新建空索引。
 
 ### 7.4 文件工具
+
+2026-10-27 平台修订：采用 Markdown → 净化 HTML → ReportLab PDF，不依赖 Windows Word COM，不执行脚本、不抓取远程图片或文件。中文优先嵌入本地 TTF/TTC（可用 PDF_FONT_PATH 指定），没有字体时使用 STSong-Light CJK 字体回退；macOS 实际中文与表格渲染已验收，其他操作系统仍需在对应环境验证字体安装与渲染。Markdown/PDF 输出以独占模式创建，禁止覆盖用户成果；重试使用新的文件名。文件工具必须有有效会话，只接受会话内严格相对路径，拒绝穿越、绝对路径及符号链接。读取文件限制 10 MiB、解压文档 50 MiB、文本输出最多 100000 字符；Excel 每表最多解析 10000 行并明确标注限制。
 
 | 工具 | 签名 | 行为 |
 | --- | --- | --- |
@@ -648,9 +650,10 @@ INSERT INTO sales_records (drug_id, sale_date, quantity_sold, unit_price, total_
 - **理由**：asyncio 同线程多协程，全局变量串台、threading.local 不隔离协程。
 - **局限**：ContextVar 仅在单进程内隔离；多 worker / 多副本部署时需改为显式的「会话 ID → 状态」存储（DB/Redis）。本版为教学简化，生产需注意。
 
-### ADR-5 报告生成：Markdown + Word COM 转 PDF
-- **决策**：先产出 Markdown，再经 HTML 转 PDF（Word COM）。
-- **理由**：中文/表格渲染稳定、零额外服务；负面是强依赖 Windows/Office。
+### ADR-5 报告生成：Markdown + ReportLab 跨平台 PDF（2026-10-27 修订）
+- **决策**：先产出 Markdown，再经净化 HTML 转为 ReportLab 排版元素，生成 PDF；替代原 Word COM 方案。
+- **理由**：macOS 可直接运行，无 Office/浏览器服务依赖，可限制 HTML 能力并禁止远程资源读取。支持中文、基础表格、标题、列表与分页；不承诺任意网页 CSS 或复杂跨行表格排版。优先使用本地中文 TTF/TTC 嵌入，跨平台部署应配置并验收中文字体。
+- **证据**：真实格式测试 7/7、PDF 中文文本提取、表格绘制及 PNG 人工视觉检查通过；实际验证平台为 macOS arm64，不把代码可移植性当作其他平台测试通过。
 
 ---
 
@@ -741,7 +744,7 @@ MYSQL_CHARSET=utf8mb4
 ### 16.1 前置条件
 
 - Python ≥ 3.12，包管理工具（uv 或 pip）；
-- Windows + 本机 Microsoft Office（PDF 转换依赖 Word COM）；
+- macOS / Windows / Linux + 可用中文 TTF/TTC 字体（PDF 采用 ReportLab，无 Office 依赖）；
 - 可用的：大模型服务、全网检索服务、MySQL；
 - BGE Embedding 模型（首次运行联网下载，或本地已有模型路径）。
 

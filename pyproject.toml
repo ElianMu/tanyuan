@@ -36,15 +36,23 @@ dependencies = [
     "openpyxl",
     "xlrd>=2,<3",
     "pandas",
-    # PDF 生成（Markdown → Word COM）
+    # PDF 生成（Markdown → 净化 HTML → ReportLab）
     "markdown",
-    "pywin32>=306; sys_platform == 'win32'",
     # 横切关注点
     "colorlog",
     "pyyaml>=6,<7",
     "python-dotenv",
     "sqlglot>=30.25,<31",
+    "reportlab>=4.4,<5",
+    "beautifulsoup4>=4.14,<5",
+    "bleach>=6.2,<7",
 ]
 
 [tool.setuptools]
 packages = ["agent", "agent.sub_agents", "api", "tools", "utils"]
+
+[dependency-groups]
+dev = [
+    "pymupdf>=1.26,<2",
+    "xlwt>=1.3,<2",
+]

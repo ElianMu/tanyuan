@@ -11,6 +11,7 @@ from langchain_core.tools import tool  # noqa: E402
 
 from api import context  # noqa: E402
 from utils import path_utils  # noqa: E402
+from utils.file_utils import resolve_file
 
 
 def _get_session_dir() -> Path:
@@ -18,18 +19,24 @@ def _get_session_dir() -> Path:
     d = context.get_session_dir()
     if d:
         return Path(d)
-    return path_utils.get_session_dir(context.get_thread_id() or "default")
+    raise ValueError("文件工具必须在有效会话内调用")
 
 
 def _read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8", errors="ignore")
+    raw = path.read_bytes()
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return raw.decode("gb18030")
 
 
 def _read_docx(path: Path) -> str:
     import docx
 
     d = docx.Document(str(path))
-    return "\n".join(p.text for p in d.paragraphs)
+    parts = [p.text for p in d.paragraphs]
+    parts.extend(" | ".join(cell.text for cell in row.cells) for table in d.tables for row in table.rows)
+    return "\n".join(parts)
 
 
 def _read_pdf(path: Path) -> str:
@@ -42,32 +49,43 @@ def _read_pdf(path: Path) -> str:
 def _read_excel(path: Path) -> str:
     import pandas as pd
 
-    df = pd.read_excel(path)
-    rows, cols = df.shape
-    return (
+    sheets = pd.read_excel(path, sheet_name=None, nrows=10000)
+    parts = []
+    for sheet, df in sheets.items():
+        rows, cols = df.shape
+        parts.append(f"工作表：{sheet}（最多解析 10000 行）\n" + (
         f"文件：{path.name}\n"
         f"行数：{rows}，列数：{cols}\n\n"
         f"前 5 行：\n{df.head(5).to_string(index=False)}\n\n"
-        f"统计描述：\n{df.describe(include='all').to_string()}"
-    )
+        f"统计描述：\n{df.describe(include='all').to_string() if len(df.columns) else '无可统计列'}"
+        ))
+    return "\n\n".join(parts)
 
 
 @tool
 def read_file_content(filename: str, instruction: str = "提取全部内容") -> str:
     """按后缀解析会话工作目录中的文件，返回其文本内容。"""
-    target = path_utils.resolve_within(_get_session_dir(), filename)
+    target = resolve_file(_get_session_dir(), filename)
     if not target.exists():
         return f"错误：文件不存在 {target}"
+    if not target.is_file() or target.stat().st_size > 10 * 1024 * 1024:
+        return "错误：只允许不超过 10 MiB 的文件"
     ext = target.suffix.lower()
-    if ext in (".md", ".txt"):
-        return _read_text(target)
-    if ext == ".docx":
-        return _read_docx(target)
-    if ext == ".pdf":
-        return _read_pdf(target)
-    if ext in (".xlsx", ".xls"):
-        return _read_excel(target)
-    return f"不支持的文件类型：{ext}"
+    readers = {".md": _read_text, ".txt": _read_text, ".docx": _read_docx,
+               ".pdf": _read_pdf, ".xlsx": _read_excel, ".xls": _read_excel}
+    if ext not in readers:
+        return f"不支持的文件类型：{ext}"
+    try:
+        if ext in (".docx", ".xlsx"):
+            from zipfile import ZipFile
+            with ZipFile(target) as archive:
+                entries = archive.infolist()
+                if len(entries) > 2000 or sum(item.file_size for item in entries) > 50 * 1024 * 1024:
+                    return "文件解析失败：压缩文档展开后超过限制"
+        result = readers[ext](target)
+        return result[:100000] + ("\n【内容超过 100000 字符，已截断】" if len(result) > 100000 else "")
+    except Exception:
+        return "文件解析失败：文件损坏或格式不匹配"
 
 
 if __name__ == "__main__":

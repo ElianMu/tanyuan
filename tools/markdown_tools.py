@@ -11,6 +11,7 @@ from langchain_core.tools import tool  # noqa: E402
 
 from api import context  # noqa: E402
 from utils import path_utils  # noqa: E402
+from utils.file_utils import resolve_file
 
 
 def _get_session_dir() -> Path:
@@ -18,18 +19,21 @@ def _get_session_dir() -> Path:
     d = context.get_session_dir()
     if d:
         return Path(d)
-    return path_utils.get_session_dir(context.get_thread_id() or "default")
+    raise ValueError("文件工具必须在有效会话内调用")
 
 
 @tool
 def generate_markdown(content: str, filename: str, path: str = "") -> str:
     """将 Markdown 内容写入会话工作目录，自动补 .md 后缀，返回绝对路径。"""
+    if len(content.encode("utf-8")) > 2 * 1024 * 1024:
+        raise ValueError("Markdown 超过 2 MiB")
     if not filename.lower().endswith(".md"):
         filename += ".md"
     virtual = f"{path}/{filename}" if path else filename
-    target = path_utils.resolve_within(_get_session_dir(), virtual)
+    target = resolve_file(_get_session_dir(), virtual)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
+    with target.open("x", encoding="utf-8") as stream:
+        stream.write(content)
     return str(target)
 
 

@@ -13,6 +13,7 @@ from langchain_core.tools import tool  # noqa: E402
 from api import context  # noqa: E402
 from utils import converter_utils  # noqa: E402
 from utils import path_utils  # noqa: E402
+from utils.file_utils import resolve_file
 
 
 def _get_session_dir() -> Path:
@@ -20,25 +21,31 @@ def _get_session_dir() -> Path:
     d = context.get_session_dir()
     if d:
         return Path(d)
-    return path_utils.get_session_dir(context.get_thread_id() or "default")
+    raise ValueError("文件工具必须在有效会话内调用")
 
 
 @tool
 def convert_md_to_pdf(md_filename: str, pdf_filename: Optional[str] = None) -> str:
     """校验源 md 文件存在后，调用转换核心生成 PDF，返回 PDF 绝对路径。"""
     session_dir = _get_session_dir()
-    md_path = path_utils.resolve_within(session_dir, md_filename)
+    md_path = resolve_file(session_dir, md_filename)
+    if md_path.suffix.lower() != ".md":
+        return "错误：仅允许转换 Markdown 文件"
     if not md_path.exists():
         return f"错误：文件不存在 {md_path}"
     if pdf_filename is None:
         pdf_filename = md_path.stem + ".pdf"
-    pdf_path = path_utils.resolve_within(session_dir, pdf_filename)
+    pdf_path = resolve_file(session_dir, pdf_filename)
+    if pdf_path.suffix.lower() != ".pdf":
+        return "错误：目标必须为 PDF 文件"
     try:
         converter_utils.convert_markdown_to_pdf(
             md_path.read_text(encoding="utf-8"), pdf_path
         )
-    except Exception as e:  # noqa: BLE001
-        return f"PDF 转换失败：{e}"
+    except FileExistsError:
+        return "PDF 转换失败：目标文件已存在，请使用新文件名"
+    except Exception:
+        return "PDF 转换失败：源内容或字体不可用"
     return str(pdf_path)
 
 
