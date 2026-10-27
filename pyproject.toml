@@ -43,6 +43,7 @@ dependencies = [
     "colorlog",
     "pyyaml>=6,<7",
     "python-dotenv",
+    "sqlglot>=30.25,<31",
 ]
 
 [tool.setuptools]
