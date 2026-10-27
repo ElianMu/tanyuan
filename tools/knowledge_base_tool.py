@@ -6,73 +6,52 @@ from __future__ import annotations
 
 import asyncio
 import os
+import json
+import subprocess
 from pathlib import Path
 
-from dotenv import load_dotenv
-from langchain_chroma import Chroma
 from langchain_core.tools import tool
-from langchain_huggingface import HuggingFaceEmbeddings
-
-# 加载项目根目录的 .env
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(_PROJECT_ROOT / ".env")
-
-# 与 scripts/build_knowledge_base.py 保持一致
-_COLLECTION_NAME = "tanyuan_kb"
-
-
-def _resolve_path(p: str) -> Path:
-    """把 .env 里的（可能是相对的）路径解析为绝对路径。"""
-    path = Path(p)
-    if not path.is_absolute():
-        path = _PROJECT_ROOT / path
-    return path.resolve()
-
-
-_embedding: HuggingFaceEmbeddings | None = None
-
-
-def _get_embedding() -> HuggingFaceEmbeddings:
-    """按 TDD §12 读取 Embedding 模型：优先本地路径，否则用模型名（懒加载 + 缓存）。"""
-    global _embedding
-    if _embedding is None:
-        model_path = os.getenv("EMBEDDING_MODEL_PATH", "").strip()
-        model_name = (
-            str(_resolve_path(model_path))
-            if model_path
-            else os.getenv("EMBEDDING_MODEL", "BAAI/bge-base-zh-v1.5")
-        )
-        _embedding = HuggingFaceEmbeddings(model_name=model_name)
-    return _embedding
+from utils.knowledge_utils import COLLECTION_NAME, MANIFEST, get_embedding, model_name, resolve_path, run_worker
 
 
 def _search_sync(query: str, k: int, vs_dir: Path) -> str:
     """同步执行嵌入 + 检索（放到独立线程跑，避免 torch 在事件循环里崩溃）。"""
+    from langchain_chroma import Chroma
+    from chromadb.config import Settings
     store = Chroma(
         persist_directory=str(vs_dir),
-        embedding_function=_get_embedding(),
-        collection_name=_COLLECTION_NAME,
+        embedding_function=get_embedding(),
+        collection_name=COLLECTION_NAME,
+        create_collection_if_not_exists=False,
+        client_settings=Settings(anonymized_telemetry=False),
     )
     docs = store.similarity_search(query, k=k)
     if not docs:
         return "知识库中未检索到相关内容"
     blocks = []
     for doc in docs:
-        source = doc.metadata.get("source", "未知文件")
-        blocks.append(f"[来源: {source}]\n{doc.page_content}")
+        source = str(doc.metadata.get("source", "未知文件"))[:300]
+        blocks.append(f"[来源: {source}]\n{doc.page_content[:4000]}")
     return "\n\n".join(blocks)
 
 
 @tool
 async def search_knowledge_base(query: str, k: int = 4) -> str:
     """对企业内部知识库文档做语义检索，返回最相关的原文片段。"""
-    vs_dir = _resolve_path(os.getenv("VECTOR_STORE_DIR", "./vector_store"))
-    if not vs_dir.exists():
+    if not query.strip() or len(query) > 2000 or not 1 <= k <= 10:
+        return "知识库检索失败：问题或检索数量超出限制"
+    vs_dir = resolve_path(os.getenv("VECTOR_STORE_DIR", "./vector_store"))
+    if not vs_dir.exists() or not (vs_dir / MANIFEST).is_file():
         return "知识库索引尚未构建，请先运行 scripts/build_knowledge_base.py"
     try:
-        return await asyncio.to_thread(_search_sync, query, k, vs_dir)
-    except Exception as e:  # noqa: BLE001
-        return f"知识库检索失败：{e}"
+        manifest = json.loads((vs_dir / MANIFEST).read_text())
+        if manifest.get("model") != model_name() or manifest.get("collection") != COLLECTION_NAME:
+            return "知识库检索失败：索引与当前 Embedding 模型不匹配"
+        return await asyncio.to_thread(run_worker, "search", {"query": query, "k": k, "directory": str(vs_dir)}, 60)
+    except (TimeoutError, subprocess.TimeoutExpired):
+        return "知识库检索失败：检索超时"
+    except Exception:
+        return "知识库检索失败：索引或模型不可用"
 
 
 if __name__ == "__main__":

@@ -406,6 +406,8 @@ sub_agents:
 - 依赖：向量库须已由 `scripts/build_knowledge_base.py` 构建；未构建时返回 `知识库索引尚未构建，请先运行 scripts/build_knowledge_base.py`；
 - Embedding 模型从环境变量读取（默认 `BAAI/bge-base-zh-v1.5`，支持本地路径）。
 
+阶段 2 实现约束（2026-10-27）：集成模块导入时不读取 `.env` 或初始化外部客户端，部署入口显式注入进程环境。BGE/Chroma 的构建与检索在独立子进程、干净工作目录中运行，避免第三方配置自动读取服务器工作目录的 `.env`；子进程不继承 API Key、Token 或数据库密码。检索超时 60 秒后结束子进程，不遗留后台模型任务。检索只打开已有集合并校验模型清单，不因查询自动新建空索引。
+
 ### 7.4 文件工具
 
 | 工具 | 签名 | 行为 |
@@ -600,6 +602,8 @@ INSERT INTO sales_records (drug_id, sale_date, quantity_sold, unit_price, total_
 | 构建 | `scripts/build_knowledge_base.py`：加载 → 分块（chunk_size=500, overlap=50）→ 向量化 → 持久化到 `vector_store/` |
 | Embedding | 模型名/路径从 .env 读取（默认 `BAAI/bge-base-zh-v1.5`）；首次运行需联网下载，本地已有模型可改路径 |
 | 检索 | `search_knowledge_base` 相似度检索返回 top-k 分块，保留原文片段供报告生成 |
+
+索引构建只允许新目录，禁止删除或覆盖已有模型、索引及语料。成功后写入 `tanyuan-index.json`，记录模型、分块参数、来源相对路径及 SHA-256；未完成或模型不匹配的索引拒绝检索。来源相对路径用于区分不同目录的同名文件。重建时选择新目录并经验证后调整 `VECTOR_STORE_DIR`，保留原目录以便回退。默认 CPU、归一化 BGE 向量；模型不启用 `trust_remote_code`。单次检索 k=1–10，问题最多 2000 字符。
 
 > 注：BGE 中文模型检索侧可加前缀「为这个句子生成表示以用于检索相关文章：」提升效果（可通过 HuggingFaceEmbeddings 的 `encode_kwargs` 配置），教学阶段可先不加，影响有限。
 
