@@ -2,13 +2,14 @@
 
 检索层：对每条 query 调 search_knowledge_base，判断是否命中 expected_source，
 计算命中率；低于 0.7 提示调整分块参数或 embedding 模型。
-生成层（进阶）：用 RAGAS 计算 Faithfulness / Answer Relevance /
-Context Precision / Context Recall 四指标。
+生成层（进阶）见 scripts/eval_ragas.py：需把私有片段发往 LLM 裁判并消耗额度，
+不在本脚本中自动执行。
 """
 from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -27,8 +28,9 @@ def _load_questions() -> list[dict]:
 
 
 def _check_hit(result: str, expected_source: str) -> bool:
-    """检查检索结果片段里是否包含期望的来源文件名。"""
-    return f"[来源: {expected_source}]" in result
+    """检查检索结果片段的来源文件名是否包含期望来源（索引记录的是相对路径）。"""
+    sources = re.findall(r"^\[来源: (.+)\]$", result, flags=re.MULTILINE)
+    return any(Path(source).name == expected_source for source in sources)
 
 
 async def evaluate_retrieval(questions: list[dict]) -> float:
@@ -51,57 +53,10 @@ async def evaluate_retrieval(questions: list[dict]) -> float:
     return hit_rate
 
 
-async def evaluate_ragas(questions: list[dict]) -> None:
-    """生成层评估（进阶，TDD §9.4）：RAGAS 四指标。
-
-    依赖 `pip install ragas`，用 LLM 生成答案并做裁判打分。
-    """
-    try:
-        from ragas import evaluate
-        from ragas.metrics import (
-            answer_relevancy,
-            context_precision,
-            context_recall,
-            faithfulness,
-        )
-        from datasets import Dataset
-    except ImportError:
-        print("\n[RAGAS] 未安装 ragas，跳过生成层评估（pip install ragas）")
-        return
-
-    from agent.llm import get_llm
-    from tools.knowledge_base_tool import _get_embedding
-
-    llm = get_llm()
-    embeddings = _get_embedding()
-
-    rows = {"question": [], "answer": [], "contexts": [], "ground_truth": []}
-    for q in questions:
-        query = q["query"]
-        context = await search_knowledge_base.ainvoke({"query": query, "k": 4})
-        prompt = f"根据以下资料回答问题：\n\n资料：\n{context}\n\n问题：{query}"
-        resp = await llm.ainvoke(prompt)
-        answer = resp.content or ""
-        rows["question"].append(query)
-        rows["answer"].append(answer)
-        rows["contexts"].append([context])
-        rows["ground_truth"].append(q["expected_source"])
-
-    dataset = Dataset.from_dict(rows)
-    result = evaluate(
-        dataset,
-        metrics=[faithfulness, answer_relevancy, context_precision, context_recall],
-        llm=llm,
-        embeddings=embeddings,
-    )
-    print("\n===== RAGAS 生成层指标 =====")
-    print(result)
-
-
 async def main() -> None:
     questions = _load_questions()
-    await evaluate_retrieval(questions)
-    await evaluate_ragas(questions)
+    hit_rate = await evaluate_retrieval(questions)
+    raise SystemExit(0 if hit_rate >= HIT_RATE_THRESHOLD else 1)
 
 
 if __name__ == "__main__":
