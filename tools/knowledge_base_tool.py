@@ -52,13 +52,3 @@ async def search_knowledge_base(query: str, k: int = 4) -> str:
         return "知识库检索失败：检索超时"
     except Exception:
         return "知识库检索失败：索引或模型不可用"
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    print(
-        asyncio.run(
-            search_knowledge_base.ainvoke({"query": "企业内部控制 风险管理", "k": 2})
-        )
-    )

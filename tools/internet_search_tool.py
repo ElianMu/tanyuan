@@ -101,7 +101,3 @@ def internet_search(
             content = (content + "\n" + str(r["raw_content"]))[:6000]
         blocks.append(f"[{i}] {title}\nURL: {url}\n内容: {content}")
     return "\n\n".join(blocks) or "未检索到有效来源"
-
-
-if __name__ == "__main__":
-    print(internet_search.invoke({"query": "人工智能 最新进展", "max_results": 2}))

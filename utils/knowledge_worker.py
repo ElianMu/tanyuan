@@ -27,5 +27,6 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        print("RAG worker failed:", type(exc).__name__, file=sys.stderr)
+        from utils.logger_utils import get_logger
+        get_logger("tanyuan.rag_worker").error("RAG worker failed: %s", type(exc).__name__)
         raise SystemExit(1)

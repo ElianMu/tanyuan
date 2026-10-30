@@ -16,7 +16,7 @@ from agent.llm import get_llm
 from agent.load_prompt import main_agent_config, sub_agents_config
 from agent.sub_agents import SUBAGENTS
 from api import context
-from api.monitor import MonitorCallbackHandler
+from api.monitor import MonitorCallbackHandler, tool_status
 from api.monitor import monitor
 from tools import reflect_check
 from tools.markdown_tools import generate_markdown
@@ -59,7 +59,7 @@ _evidence: ContextVar['Evidence | None']=ContextVar('task_evidence',default=None
 
 class Evidence(AsyncCallbackHandler):
     def __init__(self):
-        self.starts={};self.called=set();self.counts={};self.files=[];self.fragments=[];self.web_queries=set();self.delegated=set();self.records=[]
+        self.starts={};self.called=set();self.counts={};self.files=[];self.fragments=[];self.web_queries=set();self.delegated=set();self.records=[];self.failures=[]
 
     async def on_tool_start(self,serialized,input_str,*,run_id=None,inputs=None,**kwargs):
         if inputs is None:
@@ -69,10 +69,13 @@ class Evidence(AsyncCallbackHandler):
 
     async def on_tool_end(self,output,*,run_id=None,**kwargs):
         name,args=self.starts.pop(run_id,('',{}))
-        if getattr(output,'status',None)=='error': return
         text=getattr(output,'content',output)
+        if tool_status(output)=='error':
+            # 失败不计入来源与证据，但留档供审阅核对报告中的异常陈述。
+            if name in _SOURCE_TOOLS or name=='read_file_content':
+                self.failures.append({'tool':name,'arguments':args,'error':str(text)[:300]})
+            return
         if not isinstance(text,str): return
-        if text.startswith(('连接数据库失败','网络检索失败','知识库检索失败','错误：','文件解析失败','PDF 转换失败','非法的表名')): return
         if name in _SOURCE_TOOLS:
             source=_SOURCE_TOOLS[name]
             self.called.add(source)
@@ -97,6 +100,8 @@ class Evidence(AsyncCallbackHandler):
             records=[record for record in self.records if record['source']==source]
             text=json.dumps(records,ensure_ascii=False)
             groups[source]={'records':text[:limit],'truncated':len(text)>limit}
+        text=json.dumps(self.failures,ensure_ascii=False)
+        groups['failed_calls']={'records':text[:4000],'truncated':len(text)>4000}
         return groups
 
     async def on_tool_error(self,error,*,run_id=None,**kwargs): self.starts.pop(run_id,None)
@@ -223,6 +228,7 @@ async def soft_review(result):
         '只输出 JSON，不输出思考过程。格式为 {"passed":true,"issues":[]} 或 {"passed":false,"issues":["报告断言、实际证据与具体差异"]}。'
         '最多四个问题，每项不超过500字符。逐项核对后仅列出仍成立的问题，经核对正确的数字不能列为错误。'
         'runtime_proof 是程序核实的实际文件和工具调用证明，文件存在及委派是否完成以它为准，不要求报告正文重述工具日志。'
+        'evidence.failed_calls 是实际失败的工具调用；报告如实陈述这些失败不算无据断言。'
         '不要自行增加用户未要求的交付物、引用格式或验收条件。普通问答不要求文件或1000字。'
         '若来源标记 truncated，不要把片段未展示等同于原始来源不存在；仍须指出无法核验的重要断言，不能编造证据。')
     payload=json.dumps({'query':result['original_query'],'answer':result['report'][:16000],

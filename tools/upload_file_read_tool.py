@@ -10,7 +10,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from langchain_core.tools import tool  # noqa: E402
 
 from api import context  # noqa: E402
-from utils import path_utils  # noqa: E402
 from utils.file_utils import resolve_file
 
 
@@ -86,20 +85,3 @@ def read_file_content(filename: str, instruction: str = "提取全部内容") ->
         return result[:100000] + ("\n【内容超过 100000 字符，已截断】" if len(result) > 100000 else "")
     except Exception:
         return "文件解析失败：文件损坏或格式不匹配"
-
-
-if __name__ == "__main__":
-    import pandas as pd
-
-    context.set_session("demo", str(path_utils.get_session_dir("demo")))
-    session_dir = path_utils.get_session_dir("demo")
-    session_dir.mkdir(parents=True, exist_ok=True)
-    xlsx_path = session_dir / "销售数据.xlsx"
-    pd.DataFrame(
-        {
-            "药品": ["阿莫西林", "布洛芬", "二甲双胍", "阿托伐他汀", "奥司他韦"],
-            "数量": [100, 200, 150, 80, 120],
-            "单价": [25.0, 15.0, 35.0, 45.0, 100.0],
-        }
-    ).to_excel(xlsx_path, index=False)
-    print(read_file_content.invoke({"filename": "销售数据.xlsx"}))

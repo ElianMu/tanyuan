@@ -53,24 +53,3 @@ def hard_check(result: dict) -> list[str]:
         issues.append("知识库检索未完成三次")
 
     return issues
-
-
-if __name__ == "__main__":
-    ok = "这是一段足够长的报告正文" * 50  # > 1000 字
-    print("H1(篇幅不足):", hard_check({"report": "短"}))
-    print("H2(占位符):", hard_check({"report": ok + "待补充"}))
-    print(
-        "H3(缺PDF):",
-        hard_check({"report": ok, "require_pdf": True, "pdf_produced": False}),
-    )
-    print(
-        "H4(缺数据源):",
-        hard_check(
-            {
-                "report": ok,
-                "required_sources": ["knowledge", "db_query"],
-                "called_sources": ["db_query"],
-            }
-        ),
-    )
-    print("全部通过:", hard_check({"report": ok}))

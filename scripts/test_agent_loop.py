@@ -94,6 +94,17 @@ class AgentTests(unittest.TestCase):
         self.assertFalse(payload['db_query']['truncated'])
         self.assertTrue(payload['web_search']['truncated'])
 
+    def test_failed_tool_calls_reach_review_without_counting_as_sources(self):
+        async def run():
+            evidence=m.Evidence()
+            await evidence.on_tool_start({'name':'execute_sql_query'},'',run_id='a',inputs={'sql':'SELECT 1'})
+            await evidence.on_tool_end('连接数据库失败：数据库操作失败，请检查服务、只读权限和超时配置',run_id='a')
+            payload=evidence.review_evidence()
+            self.assertIn('连接数据库失败',payload['failed_calls']['records'])
+            self.assertNotIn('db_query',evidence.called)
+            self.assertEqual(evidence.records,[])
+        asyncio.run(run())
+
     def test_semantic_review_receives_actual_runtime_proof(self):
         async def run():
             fake=SimpleNamespace(ainvoke=AsyncMock(return_value=AIMessage(content='{"passed":true,"issues":[]}')))

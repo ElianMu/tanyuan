@@ -12,7 +12,6 @@ from langchain_core.tools import tool  # noqa: E402
 
 from api import context  # noqa: E402
 from utils import converter_utils  # noqa: E402
-from utils import path_utils  # noqa: E402
 from utils.file_utils import resolve_file
 
 
@@ -47,18 +46,3 @@ def convert_md_to_pdf(md_filename: str, pdf_filename: Optional[str] = None) -> s
     except Exception:
         return "PDF 转换失败：源内容或字体不可用"
     return str(pdf_path)
-
-
-if __name__ == "__main__":
-    session_dir = path_utils.get_session_dir("demo")
-    session_dir.mkdir(parents=True, exist_ok=True)
-    md_path = session_dir / "测试报告.md"
-    md_path.write_text(
-        "# 测试报告\n\n## 一、概述\n\n这是阶段 4 的 PDF 转换测试。\n\n"
-        "| 药品 | 数量 |\n| --- | --- |\n| 阿莫西林 | 100 |\n",
-        encoding="utf-8",
-    )
-    context.set_session("demo", str(session_dir))
-    result = convert_md_to_pdf.invoke({"md_filename": "测试报告.md"})
-    print("转换结果:", result)
-    print("PDF 存在:", Path(result).exists() if not result.startswith("错误") else False)

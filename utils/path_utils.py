@@ -130,17 +130,3 @@ def validate_path(path: str, root: Path) -> Path | None:
     """
     target = Path(path).resolve()
     return target if is_within(target, root) else None
-
-
-if __name__ == "__main__":
-    # 快速自检：演示四类职责
-    print("PROJECT_ROOT =", PROJECT_ROOT)
-    print("session_dir  =", get_session_dir("abc123"))
-    print("upload_dir   =", get_upload_dir("abc123"))
-    print("clean        =", clean_virtual_path(r"C:/../../a/b/../c.txt"))
-    print("resolve_within =", resolve_within(OUTPUT_DIR, "report/结果.md"))
-    try:
-        resolve_within(OUTPUT_DIR, "../../etc/passwd")
-    except PathOutOfBoundsError as e:
-        print("越界拦截      =", e)
-    print("validate(越界) =", validate_path(PROJECT_ROOT / ".." / "secret.txt", OUTPUT_DIR))

@@ -33,11 +33,3 @@ def get_llm(*, max_tokens: int = 4096, max_retries: int = 2, callbacks=None):
         max_tokens=max_tokens,
         callbacks=callbacks,
     )
-
-
-if __name__ == "__main__":
-    llm = get_llm()
-    print("LLM 初始化成功")
-    print("类型:", type(llm).__name__)
-    print("模型:", getattr(llm, "model_name", None))
-    print("端点:", getattr(llm, "openai_api_base", None))

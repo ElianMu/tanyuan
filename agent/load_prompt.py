@@ -61,18 +61,3 @@ def load_prompts(path: Path | None = None) -> dict:
 _data = load_prompts()
 main_agent_config: dict = _data["main_agent"]
 sub_agents_config: dict = _data["sub_agents"]
-
-
-if __name__ == "__main__":
-    print("=== main_agent 配置 ===")
-    print("system_prompt:")
-    print(main_agent_config["system_prompt"])
-    print()
-
-    print("=== sub_agents 配置 ===")
-    for key, cfg in sub_agents_config.items():
-        print(f"[{key}]")
-        print(f"  name        : {cfg['name']}")
-        print(f"  description : {cfg['description'].strip()}")
-        print(f"  system_prompt 前 60 字: {cfg['system_prompt'].strip()[:60]} ...")
-        print()

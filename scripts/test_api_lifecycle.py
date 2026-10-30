@@ -111,6 +111,15 @@ class APITests(unittest.TestCase):
         events=list(manager._history['hierarchy'])
         self.assertEqual(events[1]['data']['parent_id'],'parent')
         self.assertEqual(events[2]['event'],'tool_end')
+        self.assertEqual(events[2]['data']['status'],'success')
+
+    def test_tool_end_marks_string_failures_as_error(self):
+        async def run():
+            callback=MonitorCallbackHandler('failure-status')
+            await callback.on_tool_start({'name':'execute_sql_query'},'',run_id='q',inputs={'sql':'SELECT 1'})
+            await callback.on_tool_end('连接数据库失败：数据库操作失败，请检查服务、只读权限和超时配置',run_id='q')
+        asyncio.run(run())
+        self.assertEqual(list(manager._history['failure-status'])[-1]['data']['status'],'error')
 
     def test_worker_callback_sends_on_websocket_owner_loop(self):
         async def run():

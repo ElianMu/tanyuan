@@ -10,6 +10,17 @@ from typing import Any
 from fastapi import WebSocket
 from langchain_core.callbacks import AsyncCallbackHandler
 
+# 工具以字符串返回的失败前缀；监控状态与审阅证据共用，避免失败被标为 success。
+TOOL_ERROR_PREFIXES = ('连接数据库失败', '网络检索失败', '知识库检索失败', '错误：', '文件解析失败', 'PDF 转换失败', '非法的表名', '拒绝：')
+
+
+def tool_status(output) -> str:
+    """ToolMessage 自带 error 状态优先；否则按约定的失败前缀判定。"""
+    if getattr(output, "status", None) == "error":
+        return "error"
+    text = getattr(output, "content", output)
+    return "error" if isinstance(text, str) and text.startswith(TOOL_ERROR_PREFIXES) else "success"
+
 
 def build_event(event: str, message: str, data: dict[str, Any] | None = None) -> dict:
     """按 TDD §8.2 组装统一推送结构。"""
@@ -175,7 +186,7 @@ class MonitorCallbackHandler(AsyncCallbackHandler):
         text = str(getattr(output, "content", output))
         await monitor.report(self._thread_id, "tool_end", "工具返回", {
             "id": str(run_id), "tool_name": self._tools.get(str(run_id), ""), "result": text[:2000],
-            "status": getattr(output, "status", "success"),
+            "status": tool_status(output),
         })
 
     async def on_tool_error(self, error, *, run_id=None, **kwargs):
