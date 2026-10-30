@@ -2,7 +2,7 @@
 import { reactive } from 'vue'
 
 export const store = reactive({
-  sessions: [], // [{ thread_id, query, require_pdf, status, created_at, events, session_dir, result }]
+  sessions: [], // [{ thread_id, query, require_pdf, status, created_at, events, last_seq, session_dir, result }]
   currentThreadId: '',
   theme: localStorage.getItem('tanyuan-theme') || 'light',
   toasts: [], // [{ id, type, message }]
@@ -26,21 +26,22 @@ export function currentSession() {
   return getSession(store.currentThreadId) || null
 }
 
-export function addSession(threadId, query, requirePdf) {
-  const session = {
+// status 与后端一致：created | running | completed | incomplete | failed | cancelled
+export function addSession(threadId, query, requirePdf, status = 'running', sessionDir = '') {
+  store.sessions.unshift({
     thread_id: threadId,
     query,
     require_pdf: requirePdf,
-    status: 'running', // running | completed | failed
+    status,
     created_at: new Date().toLocaleString('zh-CN'),
     events: [],
-    session_dir: '',
+    last_seq: 0,
+    session_dir: sessionDir,
     result: '',
-    hard_rounds: [], // 反思校验记录（供反思卡片）
-  }
-  store.sessions.unshift(session)
+  })
   store.currentThreadId = threadId
-  return session
+  // 返回响应式代理，后续修改才能触发界面更新
+  return store.sessions[0]
 }
 
 export function switchSession(threadId) {

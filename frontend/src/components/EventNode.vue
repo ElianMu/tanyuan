@@ -13,10 +13,10 @@
 
       <span
         class="badge"
-        :class="[node.type, { pulse: node.type === 'running' }]"
+        :class="[node.type, { pulse: node.type === 'running', failed: node.failed }]"
         :style="node.color ? { color: node.color, borderColor: node.color } : {}"
       >
-        {{ node.label }}
+        {{ node.label }}<template v-if="node.failed"> · 失败</template>
       </span>
 
       <span v-if="node.timestamp" class="time">{{ node.timestamp }}</span>
@@ -100,6 +100,10 @@ function toggleArgs() {
 .badge.result {
   background: #e8f5e9;
   color: #1b5e20;
+}
+.badge.tool.failed {
+  background: #ffebee;
+  color: #c62828;
 }
 .badge.error {
   background: #ffebee;

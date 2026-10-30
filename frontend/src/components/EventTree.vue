@@ -33,16 +33,16 @@
     <el-scrollbar class="tree-scroll">
       <el-empty v-if="!session || !tree.children.length" description="暂无执行日志，请提交任务" :image-size="80" />
       <div v-else class="tree-body">
-        <EventNode :node="tree" />
+        <EventNode :key="treeKey" :node="tree" />
       </div>
     </el-scrollbar>
 
     <!-- 反思校验卡片 -->
-    <div v-if="session && session.result" class="reflection glass-card">
+    <div v-if="reflection.rounds" class="reflection glass-card">
       <div class="reflection-title">
         <el-icon><CircleCheck /></el-icon>
         <span>反思校验</span>
-        <span class="rounds">自动纠错 {{ reflection.rounds }} 轮</span>
+        <span class="rounds">共 {{ reflection.rounds }} 轮</span>
       </div>
       <div class="reflection-items">
         <div
@@ -69,22 +69,7 @@ import { SUB_AGENT_META } from '../store'
 const props = defineProps({ session: Object })
 defineEmits(['rerun', 'terminate'])
 
-// 工具名 → 归属
-const TOOL_OWNER = {
-  internet_search: '网络检索助手',
-  list_sql_tables: '数据库查询助手',
-  get_table_data: '数据库查询助手',
-  execute_sql_query: '数据库查询助手',
-  search_knowledge_base: '内部知识库助手',
-  generate_markdown: '__main__',
-  convert_md_to_pdf: '__main__',
-  read_file_content: '__main__',
-  write_todos: '__main__',
-  ls: '__main__',
-  glob: '__main__',
-}
 const HIDDEN_TOOLS = new Set(['write_todos', 'ls', 'glob'])
-const PLACEHOLDERS = ['待补充', 'TODO', '等待子任务', '占位', '（略）']
 
 const allExpanded = ref(true)
 function toggleAll() {
@@ -112,87 +97,77 @@ function summarizeArgs(args) {
   return parts.join(' · ')
 }
 
+// 按后端 id / parent_id 还原「主智能体 → 子智能体 → 工具」层级
 const tree = computed(() => {
   const rootNode = { type: 'main', label: '主智能体', children: [] }
-  const assistants = {}
+  const nodes = {}
+  const attach = (node, parentId) => (nodes[parentId] || rootNode).children.push(node)
   for (const ev of props.session?.events || []) {
+    const d = ev.data || {}
     if (ev.event === 'session_created') {
-      rootNode.children.push({
-        type: 'session',
-        label: '会话已创建',
-        children: [],
-        timestamp: formatTime(ev.timestamp),
-      })
+      if (!rootNode.children.some((n) => n.type === 'session')) {
+        rootNode.children.push({ type: 'session', label: '会话已创建', children: [], timestamp: formatTime(ev.timestamp) })
+      }
     } else if (ev.event === 'assistant_call') {
-      const name = ev.data?.assistant_name || '子智能体'
+      const name = d.assistant_name || '子智能体'
       const meta = SUB_AGENT_META[name] || {}
-      const node = { type: 'assistant', label: name, color: meta.color, icon: meta.icon, children: [] }
-      rootNode.children.push(node)
-      assistants[name] = node
+      const node = { type: 'assistant', label: name, color: meta.color, icon: meta.icon, children: [], timestamp: formatTime(ev.timestamp) }
+      nodes[d.id] = node
+      attach(node, d.parent_id)
     } else if (ev.event === 'tool_start') {
-      const toolName = ev.data?.tool_name || '工具'
-      if (HIDDEN_TOOLS.has(toolName)) continue
-      const args = ev.data?.args || {}
+      if (HIDDEN_TOOLS.has(d.tool_name)) continue
+      const args = d.args || {}
       const node = {
         type: 'tool',
-        label: toolName,
+        label: d.tool_name || '工具',
         children: [],
         args,
         argsSummary: summarizeArgs(args),
         timestamp: formatTime(ev.timestamp),
       }
-      const owner = TOOL_OWNER[toolName]
-      if (owner && owner !== '__main__' && assistants[owner]) {
-        assistants[owner].children.push(node)
-      } else {
-        rootNode.children.push(node)
-      }
+      nodes[d.id] = node
+      attach(node, d.parent_id)
+    } else if ((ev.event === 'tool_end' || ev.event === 'tool_error') && d.status === 'error' && nodes[d.id]) {
+      nodes[d.id].failed = true
+    } else if (ev.event === 'reflection') {
+      const passed = !(d.hard_issues || []).length && !d.soft_issue
+      rootNode.children.push({ type: passed ? 'result' : 'error', label: `反思校验第 ${d.round} 轮：${passed ? '通过' : '未通过'}`, children: [] })
     } else if (ev.event === 'task_result') {
-      rootNode.children.push({ type: 'result', label: '任务完成', children: [] })
-    } else if (ev.event === 'error') {
+      rootNode.children.push({ type: 'result', label: d.status === 'incomplete' ? '任务结束（未达标）' : '任务完成', children: [] })
+    } else if (ev.event === 'error' || ev.event === 'cancelled') {
       rootNode.children.push({ type: 'error', label: ev.message || '执行失败', children: [] })
     }
   }
   return rootNode
 })
 
-// 反思校验（客户端近似：从事件+结果计算 H1~H4）
+// 反思校验：直接展示后端每轮 H1~H4 硬校验与语义审阅结果
 const reflection = computed(() => {
-  const s = props.session
-  const result = s?.result || ''
-  const wordCount = result.length
-  const hasPlaceholder = PLACEHOLDERS.some((k) => result.includes(k))
-  const pdfProduced = (s?.events || []).some(
-    (e) => e.event === 'tool_start' && e.data?.tool_name === 'convert_md_to_pdf'
-  )
-  const calledSources = [...new Set((s?.events || []).filter((e) => e.event === 'assistant_call').map((e) => e.data?.assistant_name))]
-  const rounds = (s?.events || []).filter((e) => e.event === 'tool_start' && e.data?.tool_name === 'generate_markdown').length
-
+  const rounds = (props.session?.events || []).filter((e) => e.event === 'reflection').map((e) => e.data || {})
   return {
-    rounds,
-    items: [
-      { label: '字数', pass: wordCount >= 1000, detail: `${wordCount} / 1000` },
-      { label: '占位符', pass: !hasPlaceholder, detail: hasPlaceholder ? '存在占位符' : '无占位符' },
-      {
-        label: '格式',
-        pass: !s?.require_pdf || pdfProduced,
-        detail: s?.require_pdf ? (pdfProduced ? '已生成 PDF' : '未生成 PDF') : '非 PDF 任务',
-      },
-      { label: '数据源', pass: calledSources.length > 0, detail: calledSources.join('、') || '未调用' },
-    ],
+    rounds: rounds.length,
+    items: rounds.map((d) => {
+      const issues = [...(d.hard_issues || []), ...(d.soft_issue ? [d.soft_issue] : [])]
+      return {
+        label: `第 ${d.round} 轮`,
+        pass: !issues.length,
+        detail: issues.length ? issues.join('；').slice(0, 120) : '硬校验与语义审阅通过',
+      }
+    }),
   }
 })
 
 const isRunning = computed(() => props.session?.status === 'running')
 const progressPercent = computed(() => {
   if (!props.session) return 0
-  if (props.session.status === 'completed') return 100
-  if (props.session.status === 'failed') return 100
+  if (['completed', 'incomplete', 'failed', 'cancelled'].includes(props.session.status)) return 100
   return Math.min(90, 10 + (props.session.events || []).length * 5)
 })
 const progressStatus = computed(() => {
-  if (props.session?.status === 'completed') return 'success'
-  if (props.session?.status === 'failed') return 'exception'
+  const status = props.session?.status
+  if (status === 'completed') return 'success'
+  if (status === 'incomplete') return 'warning'
+  if (status === 'failed' || status === 'cancelled') return 'exception'
   return ''
 })
 </script>

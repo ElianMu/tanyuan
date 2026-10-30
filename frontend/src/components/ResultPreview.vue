@@ -21,8 +21,8 @@
         </div>
       </el-tab-pane>
 
-      <!-- PDF 预览（仅 PDF 任务） -->
-      <el-tab-pane v-if="session && session.require_pdf" label="PDF 预览" name="pdf">
+      <!-- PDF 预览（会话产出 PDF 时显示） -->
+      <el-tab-pane v-if="pdfUrl" label="PDF 预览" name="pdf">
         <div class="pdf-toolbar">
           <el-button link size="small" @click="zoom(0.8)"><el-icon><ZoomOut /></el-icon></el-button>
           <el-button link size="small" @click="zoom(1.2)"><el-icon><ZoomIn /></el-icon></el-button>
@@ -46,27 +46,45 @@ const activeTab = ref('text')
 const pdfUrl = ref('')
 const scale = ref(1)
 
-const renderedMarkdown = computed(() => {
-  const md = props.session?.result || ''
-  return marked.parse(md)
+// 报告可能夹带网页检索内容：原始 HTML 一律转义，链接与图片仅允许 http(s)/站内地址
+const escapeHtml = (text) =>
+  text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+const safeUrl = (href) => /^(https?:\/\/|#|\/(?!\/))/i.test(href || '')
+marked.use({
+  renderer: {
+    html({ text }) {
+      return escapeHtml(text)
+    },
+    link({ href, tokens }) {
+      return safeUrl(href) ? false : this.parser.parseInline(tokens)
+    },
+    image({ href, text }) {
+      return safeUrl(href) ? false : escapeHtml(text)
+    },
+  },
 })
 
+const renderedMarkdown = computed(() => marked.parse(props.session?.result || ''))
+
+// 切换会话或任务结束时查找会话目录中的 PDF
 watch(
-  () => props.session?.session_dir,
-  async (dir) => {
+  () => [props.session?.thread_id, props.session?.status],
+  async () => {
+    if (pdfUrl.value) URL.revokeObjectURL(pdfUrl.value)
     pdfUrl.value = ''
-    if (dir) await loadPdf(dir)
-  }
+    if (props.session?.session_dir) await loadPdf(props.session.thread_id)
+  },
+  { immediate: true }
 )
 
-async function loadPdf(dir) {
+async function loadPdf(threadId) {
   try {
-    const res = await listFiles(dir)
+    const res = await listFiles(threadId)
     const pdf = (res.files || []).find((f) => f.type === 'file' && f.name.endsWith('.pdf'))
     if (pdf) {
-      const r = await downloadFile(pdf.path)
+      const r = await downloadFile(threadId, pdf.path)
       const blob = await r.blob()
-      pdfUrl.value = URL.createObjectURL(blob)
+      if (props.session?.thread_id === threadId) pdfUrl.value = URL.createObjectURL(blob)
     }
   } catch {}
 }

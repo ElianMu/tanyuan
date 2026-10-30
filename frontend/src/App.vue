@@ -82,7 +82,7 @@
 
     <!-- 右侧文件面板 -->
     <aside class="file glass-card">
-      <FilePanel :session="session" />
+      <FilePanel :session="session" :ensure-session="ensureDraftSession" />
     </aside>
 
     <!-- 底部任务输入通栏 -->
@@ -108,7 +108,7 @@ import TaskInput from './components/TaskInput.vue'
 import EventTree from './components/EventTree.vue'
 import FilePanel from './components/FilePanel.vue'
 import ResultPreview from './components/ResultPreview.vue'
-import { submitTask, connectWS } from './api'
+import { createSession, submitTask, cancelTask, connectWS } from './api'
 import {
   store,
   addSession,
@@ -125,60 +125,83 @@ import {
 const stats = computed(() => sessionStats())
 const session = computed(() => currentSession())
 
-// threadId -> WebSocket，便于终止/重跑时关闭
+// threadId -> WebSocket，便于终止/删除时关闭
 const wsMap = {}
 
 function onEvent(session, ev) {
+  // 重连回放与实时推送可能重叠，按 seq 去重
+  if (ev.seq <= session.last_seq) return
+  session.last_seq = ev.seq
   session.events.push(ev)
   if (ev.event === 'session_created') {
-    session.session_dir = ev.data?.path || ''
+    session.session_dir = ev.data?.path || session.session_dir
   } else if (ev.event === 'task_result') {
-    session.status = 'completed'
+    session.status = ev.data?.status || 'completed'
     session.result = ev.data?.result || ''
-    toast('success', '任务完成')
+    toast(session.status === 'completed' ? 'success' : 'warning', session.status === 'completed' ? '任务完成' : '任务结束，报告未完全达标')
   } else if (ev.event === 'error') {
     session.status = 'failed'
     toast('error', ev.message || '任务执行失败')
+  } else if (ev.event === 'cancelled') {
+    session.status = 'cancelled'
   }
 }
 
-function startTask(query, requirePdf) {
-  const threadId = crypto.randomUUID().replace(/-/g, '')
-  const session = addSession(threadId, query, requirePdf)
-  wsMap[threadId] = connectWS(threadId, (ev) => onEvent(session, ev))
-  submitTask(query, threadId).then(() =>
-    toast('info', `会话已创建：${threadId.slice(0, 8)}`)
-  )
+function watchSession(session) {
+  const threadId = session.thread_id
+  const ws = connectWS(threadId, session.last_seq, (ev) => onEvent(session, ev))
+  // 任务未结束时断线自动重连，从 last_seq 之后继续回放
+  ws.onclose = () => {
+    if (wsMap[threadId] !== ws) return
+    delete wsMap[threadId]
+    if (session.status === 'running') setTimeout(() => getSession(threadId) && watchSession(session), 1000)
+  }
+  wsMap[threadId] = ws
 }
 
+// 上传需在任务启动前完成：无可用的未启动会话时新建一个
+async function ensureDraftSession() {
+  const current = currentSession()
+  if (current && current.status === 'created') return current
+  const res = await createSession()
+  const draft = addSession(res.thread_id, '', false, 'created', res.path)
+  watchSession(draft)
+  return draft
+}
+
+async function startTask(query, requirePdf) {
+  // 后端按问题文本判定交付物，勾选 PDF 时显式写入要求
+  const text = requirePdf && !/pdf/i.test(query) ? `${query}（请生成 PDF 报告）` : query
+  try {
+    const s = await ensureDraftSession()
+    s.query = text
+    s.require_pdf = requirePdf
+    await submitTask(text, s.thread_id)
+    s.status = 'running'
+    toast('info', `任务已提交：${s.thread_id.slice(0, 8)}`)
+  } catch (e) {
+    toast('error', e.message)
+  }
+}
+
+// 后端每个会话只受理一次任务，重跑即用原问题新建会话
 function rerun(threadId) {
   const s = getSession(threadId)
-  if (!s) return
-  s.events = []
-  s.status = 'running'
-  s.result = ''
-  s.session_dir = ''
-  s.hard_rounds = []
-  if (wsMap[threadId]) {
-    try {
-      wsMap[threadId].close()
-    } catch {}
-  }
-  wsMap[threadId] = connectWS(threadId, (ev) => onEvent(s, ev))
-  submitTask(s.query, threadId)
-  toast('info', '任务已重新执行')
+  if (!s || !s.query) return
+  switchSession('')
+  startTask(s.query, s.require_pdf)
 }
 
-function terminate(threadId) {
+async function terminate(threadId) {
   const s = getSession(threadId)
   if (!s) return
-  if (wsMap[threadId]) {
-    try {
-      wsMap[threadId].close()
-    } catch {}
+  try {
+    const res = await cancelTask(threadId)
+    s.status = res.status
+    toast('warning', '任务已终止')
+  } catch (e) {
+    toast('error', e.message)
   }
-  s.status = 'failed'
-  toast('warning', '任务已终止')
 }
 
 function onSwitch(threadId) {
@@ -186,6 +209,9 @@ function onSwitch(threadId) {
 }
 
 function onDelete(threadId) {
+  const ws = wsMap[threadId]
+  delete wsMap[threadId]
+  if (ws) ws.close()
   deleteSession(threadId)
   toast('info', '会话已删除')
 }
@@ -195,10 +221,10 @@ function fillTemplate(value) {
 }
 
 function statusText(status) {
-  return { running: '运行中', completed: '已完成', failed: '失败' }[status] || status
+  return { created: '待提交', running: '运行中', completed: '已完成', incomplete: '未达标', failed: '失败', cancelled: '已终止' }[status] || status
 }
 function statusTagType(status) {
-  return { running: 'primary', completed: 'success', failed: 'danger' }[status] || 'info'
+  return { running: 'primary', completed: 'success', incomplete: 'warning', failed: 'danger', cancelled: 'info' }[status] || 'info'
 }
 function toastIcon(type) {
   return { success: 'CircleCheck', error: 'CircleClose', warning: 'Warning', info: 'InfoFilled' }[type] || 'InfoFilled'

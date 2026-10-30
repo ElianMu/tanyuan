@@ -9,7 +9,6 @@
       <!-- Tab1：上传文件 -->
       <el-tab-pane label="上传文件" name="upload">
         <el-upload
-          v-if="session"
           drag
           multiple
           :auto-upload="false"
@@ -19,7 +18,7 @@
           <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
           <div class="el-upload__text">拖拽文件到此处，或<em>点击上传</em></div>
         </el-upload>
-        <el-empty v-else description="请先提交任务创建会话，再上传文件" :image-size="70" />
+        <div class="upload-tip">附件需在提交任务前上传，将随下一次提交的任务一起分析</div>
 
         <div v-if="uploadList.length" class="upload-list">
           <div v-for="(f, i) in uploadList" :key="i" class="file-card">
@@ -59,25 +58,31 @@ import { ref, computed, watch } from 'vue'
 import { uploadFiles, listFiles, downloadFile } from '../api'
 import { toast } from '../store'
 
-const props = defineProps({ session: Object })
+const props = defineProps({ session: Object, ensureSession: Function })
 const activeTab = ref('upload')
 const uploadList = ref([])
 const uploading = ref(false)
 const resultFiles = ref([])
 const filesVersion = ref(0)
 
+// 切换会话或任务结束（产出新文件）时刷新成果列表
 watch(
-  () => props.session?.session_dir,
-  (dir) => {
-    if (dir) refresh()
+  () => [props.session?.thread_id, props.session?.status],
+  () => {
+    if (props.session?.session_dir) refresh()
     else resultFiles.value = []
-  }
+  },
+  { immediate: true }
 )
 
 async function refresh() {
   if (!props.session?.session_dir) return
-  const res = await listFiles(props.session.session_dir)
-  resultFiles.value = res.files || []
+  try {
+    const res = await listFiles(props.session.thread_id)
+    resultFiles.value = res.files || []
+  } catch (e) {
+    toast('error', e.message)
+  }
 }
 
 function onFileChange(file, fileList) {
@@ -89,27 +94,30 @@ function removeFile(i) {
 }
 
 async function doUpload() {
-  if (!props.session?.thread_id || !uploadList.value.length) return
+  if (!uploadList.value.length) return
   uploading.value = true
   try {
-    const res = await uploadFiles(props.session.thread_id, uploadList.value)
+    const target = await props.ensureSession()
+    const res = await uploadFiles(target.thread_id, uploadList.value)
     toast('success', `已上传 ${(res.files || []).length} 个文件`)
     uploadList.value = []
     refresh()
   } catch (e) {
-    toast('error', '上传失败')
+    toast('error', e.message)
   } finally {
     uploading.value = false
   }
 }
 
 async function download(f) {
-  // 越权拦截：文件必须位于当前会话目录
-  if (props.session?.session_dir && !f.path.startsWith(props.session.session_dir)) {
-    toast('error', '越权访问拦截：非当前会话文件')
+  // 越权由后端按 thread_id 校验，403 时提示原因
+  let res
+  try {
+    res = await downloadFile(props.session.thread_id, f.path)
+  } catch (e) {
+    toast('error', e.message)
     return
   }
-  const res = await downloadFile(f.path)
   const blob = await res.blob()
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -151,6 +159,11 @@ function fileIconColor(name) {
   flex: 1;
   display: flex;
   flex-direction: column;
+}
+.upload-tip {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 .upload-list,
 .result-list {
