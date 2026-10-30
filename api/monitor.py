@@ -30,8 +30,10 @@ class ConnectionManager:
         self._history = OrderedDict()
         self._sequence = {}
         self._send_locks = {}
+        self._loop = None
 
     async def connect(self, thread_id: str, ws: WebSocket, after: int | None = None) -> None:
+        self._loop = asyncio.get_running_loop()
         if sum(map(len, self._connections.values())) >= 100 or len(self._connections.get(thread_id, [])) >= 4:
             await ws.close(code=1013, reason="连接数量超过限制")
             return False
@@ -68,6 +70,11 @@ class ConnectionManager:
         ensure_ascii=True 让 JSON 走纯 ASCII（中文转 \\uXXXX），
         规避 Vite 的 WS 代理对非 ASCII 帧的 UTF-8 转写问题。
         """
+        running = asyncio.get_running_loop()
+        if self._loop is not None and self._loop is not running and not self._loop.is_closed():
+            future = asyncio.run_coroutine_threadsafe(self.send_event(thread_id, event, message, data), self._loop)
+            await asyncio.wrap_future(future)
+            return
         payload = build_event(event, message, data)
         payload["thread_id"] = thread_id
         payload["seq"] = self._sequence.get(thread_id, 0) + 1
@@ -173,3 +180,11 @@ class MonitorCallbackHandler(AsyncCallbackHandler):
 
     async def on_tool_error(self, error, *, run_id=None, **kwargs):
         await monitor.report(self._thread_id, "tool_error", "工具执行失败", {"id": str(run_id), "status": "error"})
+
+    async def on_llm_end(self, response, *, run_id=None, **kwargs):
+        tools = []
+        for group in response.generations:
+            for generation in group:
+                message = getattr(generation, "message", None)
+                tools.extend(call.get("name", "") for call in getattr(message, "tool_calls", []) or [])
+        await monitor.report(self._thread_id, "model_end", "模型响应完成", {"id": str(run_id), "tools": tools})

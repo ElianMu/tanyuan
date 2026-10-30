@@ -6,7 +6,7 @@ from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
 from fastapi.testclient import TestClient
 from api import server
-from api.monitor import manager,monitor,MonitorCallbackHandler
+from api.monitor import manager,monitor,MonitorCallbackHandler,ConnectionManager
 from agent import main_agent
 from utils import path_utils
 
@@ -111,6 +111,31 @@ class APITests(unittest.TestCase):
         events=list(manager._history['hierarchy'])
         self.assertEqual(events[1]['data']['parent_id'],'parent')
         self.assertEqual(events[2]['event'],'tool_end')
+
+    def test_worker_callback_sends_on_websocket_owner_loop(self):
+        async def run():
+            owner=asyncio.get_running_loop();local=ConnectionManager();received=[]
+            class Socket:
+                async def accept(self): pass
+                async def send_text(self,text):
+                    self_loop=asyncio.get_running_loop()
+                    if self_loop is not owner: raise AssertionError('cross-loop socket send')
+                    received.append(text)
+            ws=Socket();await local.connect('thread',ws)
+            await asyncio.wait_for(asyncio.to_thread(lambda:asyncio.run(local.send_event('thread','tool_end','done'))),2)
+            self.assertEqual(len(received),1)
+            self.assertIn('tool_end',received[0])
+        asyncio.run(run())
+
+    def test_port_probe_still_refuses_an_existing_listener(self):
+        import socket
+        from scripts.check_stage0 import assert_local_port_available
+        with socket.socket() as listener:
+            listener.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+            listener.bind(('127.0.0.1',0));listener.listen(1)
+            port=listener.getsockname()[1]
+            with self.assertRaises(OSError): assert_local_port_available(port)
+        assert_local_port_available(port)
 
 
 if __name__=='__main__': unittest.main(verbosity=2)

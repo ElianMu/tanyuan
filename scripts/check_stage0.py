@@ -15,6 +15,13 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 
+def assert_local_port_available(port=8000):
+    with socket.socket() as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        probe.bind(("127.0.0.1", port))
+        probe.listen(1)
+
+
 def guard(event, args):
     if event == "open" and isinstance(args[0], (str, bytes)):
         name = Path(args[0]).name
@@ -77,8 +84,7 @@ def main():
     print("PASS: 会话 ID / HTTP / 上传 / 符号链接安全回归测试", flush=True)
 
     # 先确认端口空闲，绝不终止用户已有服务。
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 8000))
+    assert_local_port_available()
     with tempfile.TemporaryFile(mode="w+") as logs:
         child = subprocess.Popen(
             [sys.executable, "-B", str(Path(__file__).resolve()), "--serve-child"],

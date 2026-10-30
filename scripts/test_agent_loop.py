@@ -77,12 +77,93 @@ class AgentTests(unittest.TestCase):
         for name,args in [('execute',{}),('write_file',{}),('generate_markdown',{}),('task',{'subagent_type':'general-purpose'})]:
             with self.assertRaises(ValueError): m.ToolPolicy().check(SimpleNamespace(tool_call={'name':name,'args':args}))
 
+    def test_model_schema_hides_disallowed_builtin_tools(self):
+        class Request:
+            tools=[{'name':'execute'},{'name':'write_file'},{'name':'task'},{'name':'read_file_content'}]
+            def override(self,**kwargs): return kwargs
+        filtered=m.ToolPolicy().wrap_model_call(Request(),lambda request:request)
+        self.assertEqual([t['name'] for t in filtered['tools']],['task','read_file_content'])
+
+    def test_review_balances_sources_and_keeps_database_provenance(self):
+        evidence=m.Evidence()
+        evidence.records=[{'source':'db_query','tool':'get_table_data','arguments':{'table_name':'sales_records'},'content':'x'*7000+'region,unit_price\n华东区,15.00'}]
+        evidence.records.extend({'source':'web_search','tool':'internet_search','arguments':{},'content':'x'*20000} for _ in range(3))
+        payload=evidence.review_evidence()
+        self.assertIn('华东区',payload['db_query']['records'])
+        self.assertIn('unit_price',payload['db_query']['records'])
+        self.assertFalse(payload['db_query']['truncated'])
+        self.assertTrue(payload['web_search']['truncated'])
+
+    def test_semantic_review_receives_actual_runtime_proof(self):
+        async def run():
+            fake=SimpleNamespace(ainvoke=AsyncMock(return_value=AIMessage(content='{"passed":true,"issues":[]}')))
+            fake.bind=lambda **kwargs:fake
+            data=result()
+            data['runtime_proof']={'called_sources':['db_query'],'files':[{'name':'report.pdf','bytes':12000}]}
+            with patch.object(m,'get_llm',return_value=fake):
+                self.assertIsNone(await m.soft_review(data))
+            messages=fake.ainvoke.await_args.args[0]
+            payload=json.loads(messages[1].content)
+            self.assertEqual(payload['runtime_proof']['files'][0]['name'],'report.pdf')
+            self.assertEqual(payload['runtime_proof']['called_sources'],['db_query'])
+            self.assertIn('程序核实',messages[0].content)
+        asyncio.run(run())
+
+    def test_semantic_json_validation_fails_closed(self):
+        self.assertIsNone(m.parse_review('{"passed":true,"issues":[]}'))
+        self.assertIn('数据不一致',m.parse_review('{"passed":false,"issues":["数据不一致"]}'))
+        for text in ['通过','', '{"passed":true,"issues":["尚有错误"]}', '{"passed":false,"issues":[]}',
+                     '{"passed":"true","issues":[]}', '{"passed":true,"issues":[],"unknown":1}']:
+            self.assertIn('合法且一致',m.parse_review(text))
+
+    def test_child_partial_summary_cannot_hide_successful_tool_evidence(self):
+        evidence=m.Evidence();evidence.records=[{'source':'db_query','tool':'execute_sql_query','arguments':{},'content':'total\n2153200.00'}]
+        token=m._evidence.set(evidence);self.addCleanup(m._evidence.reset,token)
+        from langchain_core.messages import ToolMessage
+        from langgraph.types import Command
+        request=SimpleNamespace(tool_call={'name':'task','args':{'subagent_type':'数据库查询助手'}})
+        original=Command(update={'messages':[ToolMessage(content='model call limit reached',tool_call_id='child')]})
+        output=m.ToolPolicy()._verified_result(request,original)
+        self.assertIn('2153200.00',output.update['messages'][0].content)
+        self.assertNotIn('2153200.00',original.update['messages'][0].content)
+
     def test_actual_deepagents_graph_blocks_plain_answer_file_tool(self):
         fake=ToolModel(responses=[AIMessage(content='',tool_calls=[{'name':'generate_markdown','args':{'content':'forbidden','filename':'bad.md'},'id':'t1','type':'tool_call'}]),AIMessage(content='直接回答')])
         async def run():
             with patch.object(m,'get_llm',return_value=fake),patch.object(m,'soft_review',new_callable=AsyncMock,return_value=None):
                 self.assertEqual(await m.run_deep_agent('普通问题','graph'),'直接回答')
             self.assertEqual(list(path_utils.get_session_dir('graph').iterdir()),[])
+        asyncio.run(run())
+
+    def test_actual_graph_report_tools_and_artifact_evidence(self):
+        text='# 测试报告\n\n'+('这是公开测试内容，用于验证中文报告与文件生成。'*70)
+        def call(name,args,key):
+            return AIMessage(content='',tool_calls=[{'name':name,'args':args,'id':key,'type':'tool_call'}])
+        fake=ToolModel(responses=[call('read_file_content',{'filename':'memo.txt'},'r'),
+            call('generate_markdown',{'content':text,'filename':'report.md'},'m'),
+            call('convert_md_to_pdf',{'md_filename':'report.md'},'p'),AIMessage(content='已成功创建')])
+        upload=path_utils.get_upload_dir('reportgraph');upload.mkdir(parents=True)
+        (upload/'memo.txt').write_text('公开测试内容')
+        async def run():
+            with patch.object(m,'get_llm',return_value=fake),patch.object(m,'soft_review',new_callable=AsyncMock,return_value=None):
+                answer=await m.run_deep_agent('生成 PDF 报告','reportgraph')
+            self.assertEqual(answer,text)
+            self.assertTrue((path_utils.get_session_dir('reportgraph')/'report.pdf').read_bytes().startswith(b'%PDF-'))
+        asyncio.run(run())
+
+    def test_actual_subagent_graph_retains_task_context(self):
+        def list_sql_tables() -> str:
+            """Offline test table listing."""
+            return '可用的表：drugs,inventory,sales_records'
+        fake=ToolModel(responses=[
+            AIMessage(content='',tool_calls=[{'name':'task','args':{'subagent_type':'数据库查询助手','description':'列出表'},'id':'delegate','type':'tool_call'}]),
+            AIMessage(content='',tool_calls=[{'name':'list_sql_tables','args':{},'id':'list','type':'tool_call'}]),
+            AIMessage(content='已查到三张业务表'),AIMessage(content='已查到三张业务表')])
+        child={**m.SUBAGENTS[1],'tools':[list_sql_tables]}
+        async def run():
+            with patch.object(m,'get_llm',return_value=fake),patch.object(m,'SUBAGENTS',[child]),patch.object(m,'soft_review',new_callable=AsyncMock,return_value=None):
+                answer=await m.run_deep_agent('查询数据库业务表','childgraph')
+            self.assertNotIn('未达标说明',answer)
         asyncio.run(run())
 
     def test_real_tool_evidence_does_not_count_failed_requests(self):
