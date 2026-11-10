@@ -49,3 +49,11 @@ HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 uv run python -B scripts/eval_rag.py
 
 - **生成层 RAGAS（进阶）未执行**：需用户授权将私有片段发往 LLM 并另批额度。且 `scripts/eval_ragas.py` 引用了已不存在的 `_get_embedding`，当前无法直接运行，执行前需先修复。
 - 题集 10 条、均为单文件直问，命中率 1.00 只说明当前语料下来源定位可靠，不代表片段内容充分或跨文档问题表现。
+
+## 2026-10-30 · 进阶 RAGAS 补齐
+
+用户明确授权发送当前私有索引检索片段至 DeepSeek，并新增最多 100 次调用。已修复失效 Embedding 导入、可选依赖兼容、独立裁判客户端、分块传递及额度控制；真实执行全部 10 道题与四项指标，恢复评分退出码 0，累计预扣 91/100 次。此前“脚本无法直接运行、生成层未执行”的记录为历史状态。
+
+实际均值：Faithfulness **0.889670**，Answer Relevancy **0.528620**，Context Precision **0.666667**，Context Recall **0.600000**。为本次额度将相关性反向问题生成设为每题 1 次；未设质量通过阈值，执行完成不等于质量达标。无索引重建、无自动调参。
+
+首次评分连接失败、全部答案、恢复过程、最终逐题分数、独立预算均保留，详见《生产托管与RAGAS-验收.md》。最终证据为 `output/ragas-authorized-7b0b588ff1d2442696c95468da369d05/ragas-a27e296f313c4a259f77f587f3b01fc3/result.json`，Git 忽略，不提交私有片段。

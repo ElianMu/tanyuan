@@ -49,6 +49,13 @@ dependencies = [
     "langgraph>=1,<2",
 ]
 
+[project.optional-dependencies]
+eval = [
+    "datasets>=4,<5",
+    "langchain-community>=0.3.31,<0.4",
+    "ragas>=0.3.9,<0.4",
+]
+
 [tool.setuptools]
 packages = ["agent", "agent.sub_agents", "api", "tools", "utils"]
 

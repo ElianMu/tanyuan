@@ -97,16 +97,27 @@ def main():
                 if child.poll() is not None:
                     raise RuntimeError("FastAPI 启动进程提前退出")
                 try:
-                    with opener.open("http://127.0.0.1:8000/", timeout=1) as response:
+                    with opener.open("http://127.0.0.1:8000/api/health", timeout=1) as response:
                         assert response.status == 200
                         data = json.load(response)
                         assert data["status"] == "ok"
+                    with opener.open("http://127.0.0.1:8000/", timeout=1) as response:
+                        assert response.status == 200
+                        if (ROOT / 'frontend/dist/index.html').is_file():
+                            assert 'text/html' in response.headers['Content-Type']
+                            import re
+                            html = response.read().decode('utf-8')
+                            assets = re.findall(r'(?:src|href)="(/assets/[^"]+)"', html)
+                            assert assets
+                            for asset in assets:
+                                with opener.open('http://127.0.0.1:8000' + asset, timeout=2) as content:
+                                    assert content.status == 200
                     break
                 except OSError:
                     if time.monotonic() >= deadline:
                         raise
                     time.sleep(0.1)
-            print("PASS: python main.py 在 127.0.0.1:8000 启动，GET / 返回 HTTP 200", flush=True)
+            print("PASS: 127.0.0.1:8000 健康检查、首页及已构建静态资源 HTTP 200", flush=True)
         finally:
             child.terminate()
             try:

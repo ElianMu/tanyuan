@@ -5,7 +5,8 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
-from fastapi import FastAPI,File,Form,UploadFile,WebSocket,WebSocketDisconnect,Request,HTTPException
+from fastapi import FastAPI,File,Form,UploadFile,WebSocket,WebSocketDisconnect,HTTPException
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse,JSONResponse
 from pydantic import BaseModel,Field,field_validator
 from api.monitor import manager,monitor
@@ -22,6 +23,7 @@ class Session:
 
 _sessions: dict[str,Session]={}
 _tasks: dict[str,asyncio.Task]={}
+FRONTEND_DIST=Path(__file__).resolve().parent.parent/'frontend'/'dist'
 
 
 @asynccontextmanager
@@ -67,7 +69,14 @@ def _session(thread_id,create=False):
 
 
 @app.get('/')
-def root(): return {'status':'ok','message':'探渊服务已启动'}
+def root():
+    if (FRONTEND_DIST/'index.html').is_file():
+        return FileResponse(FRONTEND_DIST/'index.html',headers={'Cache-Control':'no-cache'})
+    return health()
+
+
+@app.get('/api/health')
+def health(): return {'status':'ok','message':'探渊服务已启动'}
 
 
 @app.post('/api/session')
@@ -200,6 +209,26 @@ async def websocket_endpoint(ws: WebSocket,thread_id: str,after: int | None=None
             await ws.send_text(json.dumps({'type':'pong','message':'服务端已收到: '+data},ensure_ascii=True))
     except WebSocketDisconnect: pass
     finally: manager.disconnect(thread_id,ws)
+
+
+class FrontendFiles(StaticFiles):
+    async def __call__(self,scope,receive,send):
+        if scope['type']=='websocket':
+            await send({'type':'websocket.close','code':1008})
+            return
+        await super().__call__(scope,receive,send)
+
+    async def get_response(self,path,scope):
+        # Unknown API/WS URLs must never resolve to a frontend file.
+        if path.split('/')[0] in {'api','ws'}:
+            raise HTTPException(404,'Not Found')
+        return await super().get_response(path,scope)
+
+
+# Registered last so REST and WebSocket routes retain precedence. No build is
+# required for backend-only operation; restart after building for deployment.
+if FRONTEND_DIST.is_dir():
+    app.mount('/',FrontendFiles(directory=FRONTEND_DIST,html=True),name='frontend')
 
 
 def start_server():
